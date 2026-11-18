@@ -47,10 +47,10 @@ pip install -r requirements.txt
 cp .env.example .env        # add GROQ_API_KEY and passwords if you want them
 
 # 4. Run
-streamlit run app.py
+streamlit run app.py --server.port 8599
 ```
 
-Streamlit then opens the app in your browser at `http://localhost:8501`. That address only works on the machine
+Streamlit then opens the app in your browser at `http://localhost:8599`. That address only works on the machine
 running the app; for a shareable link, see [Deploy to Streamlit Community Cloud](#deploy-to-streamlit-community-cloud).
 If no passwords are configured, the login screen shows the demo credentials
 (`flux-ceo`, `flux-cco`, `flux-ssm`, `flux-ops`).
