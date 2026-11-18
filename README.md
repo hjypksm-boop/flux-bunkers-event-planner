@@ -50,7 +50,9 @@ cp .env.example .env        # add GROQ_API_KEY and passwords if you want them
 streamlit run app.py
 ```
 
-Open http://localhost:8501. If no passwords are configured, the login screen shows the demo credentials
+Streamlit then opens the app in your browser at `http://localhost:8501`. That address only works on the machine
+running the app; for a shareable link, see [Deploy to Streamlit Community Cloud](#deploy-to-streamlit-community-cloud).
+If no passwords are configured, the login screen shows the demo credentials
 (`flux-ceo`, `flux-cco`, `flux-ssm`, `flux-ops`).
 
 The SQLite database (`data/flux_bunkers.db`) is created and seeded automatically on first run.
