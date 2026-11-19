@@ -27,6 +27,13 @@ STATUS_COLOURS = {
 STATUS_ICONS = {"proposed": "◌", "confirmed": "●", "moved": "↻", "cancelled": "✕", "done": "✓"}
 RAG = {"off track": ("#E5534B", "🔴"), "at risk": ("#F97316", "🟠"), "on track": ("#4CAF7A", "🟢"),
        "not started": ("#8A8F98", "⚪")}
+# Travel: outlined/hatched blocks so they never read as meetings.
+TRAVEL_COLOURS = {"flight": "#C9A3FF", "hotel": "#7FB7BE", "transfer": "#D4B483"}
+TRAVEL_STATUS_COLOURS = {"booked": "#4C9BE8", "confirmed": "#4CAF7A", "checked in": "#4CAF7A", "landed": "#4CAF7A",
+                         "delayed": "#F97316", "cancelled": "#E5534B", "not booked": "#E5534B",
+                         "planned": "#8A8F98", "travelling": "#E3A008", "done": "#4CAF7A",
+                         "pending": "#F97316", "not needed": "#8A8F98"}
+TZ_MODES = ["Event local", "London"]
 FOLLOWUP_COLOURS = {"draft": "#8A8F98", "approved": "#4C9BE8", "sent": "#4CAF7A"}
 
 CSS = f"""
@@ -118,6 +125,25 @@ def fmt_time(dt: datetime, ev: dict, london: bool = False) -> str:
     if london:
         return f"{clock.local_to_tz(dt, ev['timezone'], clock.LONDON):%H:%M}"
     return f"{dt:%H:%M}"
+
+
+def tz_toggle(key: str) -> bool:
+    """Event-local / London switch shared across pages (remembers the last choice). Returns True for London."""
+    current = st.session_state.get("tz_mode", TZ_MODES[0])
+    val = st.segmented_control("Times shown in", TZ_MODES, default=current, key=key) or current
+    st.session_state["tz_mode"] = val
+    return val == "London"
+
+
+def show_time(dt: datetime, ev: dict, london: bool, fmt: str = "%H:%M", from_tz: str | None = None) -> str:
+    """Format a naive local time (in `from_tz`, default the event zone) in event-local or London time."""
+    src = from_tz or ev["timezone"]
+    target = clock.LONDON if london else ev["timezone"]
+    return f"{clock.local_to_tz(dt, src, target) if src != target else dt:{fmt}}"
+
+
+def travel_pill(status: str) -> str:
+    return pill(status, TRAVEL_STATUS_COLOURS.get(status, MUTED))
 
 
 def open_brief(meeting_id: int) -> None:

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from services import auth, clock, data, ui
+from services import auth, clock, data, travel, ui
 from services.timeline import build_timeline
 
 user = auth.current_user()
@@ -15,7 +15,7 @@ ui.demo_banner(ev)
 ui.header("Live Diary", f"{ev['name']} · {ev['city']} · {ev['agenda_note']}")
 
 attendees = data.people(attendees_only=True)
-days = data.event_days(ev)
+days = travel.diary_days(ev)          # event days + travel days either side
 now_local = clock.now_in(ev["timezone"])
 default_day = now_local.date().isoformat() if now_local.date().isoformat() in days else days[0]
 day_key = f"diary_day_{ev['id']}"
@@ -28,11 +28,9 @@ with c1:
         "Day", days, key=day_key, format_func=lambda d: datetime.fromisoformat(d).strftime("%a %d %b"),
         selection_mode="single") or default_day
 with c2:
-    tz_mode = st.segmented_control("Times shown in", ["Event local", "London"], default="Event local",
-                                   key="diary_tz") or "Event local"
+    london = ui.tz_toggle("diary_tz")
 with c3:
     show_cancelled = st.toggle("Show cancelled", value=True, key="diary_cancelled")
-london = tz_mode == "London"
 
 
 @st.fragment(run_every=30)
@@ -55,8 +53,9 @@ def live_panel() -> None:
 
     meetings = data.meetings(ev["id"])
     sessions = data.sessions(ev["id"])
+    blocks = travel.day_blocks(ev["id"], ev, day)
     fig = build_timeline(meetings, sessions, attendees, ev, day, london=london, now_local=now_local,
-                         show_cancelled=show_cancelled)
+                         show_cancelled=show_cancelled, travel_blocks=blocks)
 
     legend = " ".join(ui.person_dot(p["colour"], p["role"]) for p in attendees)
     refreshed = datetime.now(timezone.utc).astimezone(ZoneInfo(clock.LONDON))
@@ -71,6 +70,15 @@ def live_panel() -> None:
         cd = p.get("customdata")
         if isinstance(cd, (list, tuple)) and cd and isinstance(cd[0], (int, float)):
             ui.open_brief(int(cd[0]))
+
+    # ---- travel on this day
+    if blocks:
+        roles = {p["id"]: p["role"] for p in attendees}
+        with st.expander(f"Travel on {datetime.fromisoformat(day):%a %d %b} ({len(blocks)})", expanded=False):
+            for b in blocks:
+                st.markdown(f"`{ui.fmt_time(b['start'], ev, london)}` &nbsp; {ui.travel_pill(b['status'])} &nbsp; "
+                            f"**{ui.esc(b['label'])}** <span class='fb-small'>· {ui.esc(roles.get(b['person_id'], ''))}"
+                            f" · {ui.esc(b['detail'])}</span>", unsafe_allow_html=True)
 
     # ---- day list + fallback opener (also works on touch devices)
     day_rows = [m for m in meetings if m["start_at"][:10] == day and (show_cancelled or m["status"] != "cancelled")]

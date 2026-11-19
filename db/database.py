@@ -78,3 +78,16 @@ def init_db(force_reseed: bool = False) -> None:
         has_data = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
         if not has_data:
             seed.seed(conn)
+        else:
+            migrate(conn)
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Bring an existing database up to date without touching its data.
+
+    New tables arrive via CREATE TABLE IF NOT EXISTS in schema.sql; this fills in their seed rows
+    (travel logistics) only if they are still empty.
+    """
+    from db.seed_travel import seed_travel
+
+    seed_travel(conn)

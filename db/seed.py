@@ -11,6 +11,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from db.seed_travel import seed_travel
+
 # ----------------------------------------------------------------------------- people
 PEOPLE = [
     # key, name, role, colour, is_attendee, can_edit
@@ -497,6 +499,9 @@ def seed(conn: sqlite3.Connection) -> None:
                      "meeting.the_ask", "materials"]),
          json.dumps(["Commercial Director's authority to commit volumes is unverified (not recorded in database)"]),
          "template", _utc_iso(now - timedelta(hours=3))))
+
+    # ---- travel logistics (flights, hotels, transfers, document checklist)
+    seed_travel(conn)
     conn.commit()
 
 

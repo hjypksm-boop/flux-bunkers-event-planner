@@ -205,3 +205,91 @@ CREATE TABLE IF NOT EXISTS viewer_state (
 CREATE INDEX IF NOT EXISTS idx_meetings_event ON meetings(event_id, start_at);
 CREATE INDEX IF NOT EXISTS idx_change_log_event ON change_log(event_id, id);
 CREATE INDEX IF NOT EXISTS idx_notes_account ON notes(account_id);
+
+-- ============================================================================ travel logistics
+-- Travel times are stored as naive local ISO strings PLUS the IANA timezone of that place
+-- (a flight has one zone per end). Convert with zoneinfo for event-local or London display.
+-- PRIVACY: no passport, ID, card or bank columns exist anywhere, by design.
+
+CREATE TABLE IF NOT EXISTS trips (
+    id              INTEGER PRIMARY KEY,
+    person_id       INTEGER NOT NULL REFERENCES people(id),
+    event_id        INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    outbound_date   TEXT NOT NULL,             -- YYYY-MM-DD (departure from London)
+    return_date     TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'planned'
+                    CHECK (status IN ('planned','booked','confirmed','travelling','done')),
+    budget_gbp      REAL NOT NULL DEFAULT 0,   -- actual cost = sum of item costs (computed, never stored)
+    notes           TEXT,
+    UNIQUE (person_id, event_id)
+);
+
+CREATE TABLE IF NOT EXISTS flights (
+    id              INTEGER PRIMARY KEY,
+    trip_id         INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    direction       TEXT NOT NULL CHECK (direction IN ('outbound','return','internal')),
+    airline         TEXT NOT NULL,
+    flight_no       TEXT NOT NULL,
+    dep_airport     TEXT NOT NULL,
+    dep_at          TEXT NOT NULL,             -- scheduled, local to dep_tz
+    dep_tz          TEXT NOT NULL,
+    dep_terminal    TEXT,
+    arr_airport     TEXT NOT NULL,
+    arr_at          TEXT NOT NULL,             -- scheduled, local to arr_tz
+    arr_tz          TEXT NOT NULL,
+    arr_terminal    TEXT,
+    booking_ref     TEXT,
+    seat            TEXT,
+    cost_gbp        REAL NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'booked'
+                    CHECK (status IN ('booked','checked in','delayed','cancelled','landed')),
+    delay_minutes   INTEGER NOT NULL DEFAULT 0 -- shifts departure and arrival; schedule kept
+);
+
+CREATE TABLE IF NOT EXISTS hotels (
+    id                  INTEGER PRIMARY KEY,
+    trip_id             INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    name                TEXT NOT NULL,
+    address             TEXT,
+    tz                  TEXT NOT NULL,
+    check_in_at         TEXT NOT NULL,
+    check_out_at        TEXT NOT NULL,
+    booking_ref         TEXT,
+    distance_km         REAL,                  -- to venue; NULL while venue is TBC
+    travel_min_to_venue INTEGER,
+    phone               TEXT,
+    cost_gbp            REAL NOT NULL DEFAULT 0,
+    status              TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('not booked','booked','confirmed'))
+);
+
+CREATE TABLE IF NOT EXISTS transfers (
+    id              INTEGER PRIMARY KEY,
+    trip_id         INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    type            TEXT NOT NULL CHECK (type IN ('airport pickup','airport drop-off','venue shuttle',
+                                                  'car to Fujairah','car from Fujairah')),
+    pickup_at       TEXT NOT NULL,
+    tz              TEXT NOT NULL,
+    pickup_place    TEXT NOT NULL,
+    dropoff_place   TEXT NOT NULL,
+    provider        TEXT,
+    driver_contact  TEXT,
+    est_minutes     INTEGER NOT NULL,
+    booking_ref     TEXT,
+    cost_gbp        REAL NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('not booked','booked','confirmed'))
+);
+
+-- Checklist status ONLY. Never store document numbers.
+CREATE TABLE IF NOT EXISTS travel_docs (
+    id          INTEGER PRIMARY KEY,
+    person_id   INTEGER NOT NULL REFERENCES people(id),
+    event_id    INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    item        TEXT NOT NULL,
+    status      TEXT NOT NULL CHECK (status IN ('done','pending','not needed')),
+    UNIQUE (person_id, event_id, item)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trips_event ON trips(event_id, person_id);
+CREATE INDEX IF NOT EXISTS idx_flights_trip ON flights(trip_id);
+CREATE INDEX IF NOT EXISTS idx_hotels_trip ON hotels(trip_id);
+CREATE INDEX IF NOT EXISTS idx_transfers_trip ON transfers(trip_id);

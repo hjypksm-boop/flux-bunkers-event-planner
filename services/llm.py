@@ -412,3 +412,81 @@ def learnings_summary(stats: dict, debrief_lines: list[dict]) -> LLMResult:
 def objection_counts(objection_strings: list[str]) -> list[tuple[str, int]]:
     c = Counter(o.strip() for s in objection_strings for o in (s or "").split(";") if o.strip())
     return c.most_common()
+
+
+# ----------------------------------------------------------------------------- travel summary
+TRAVEL_SYSTEM = """You write a short travel briefing for one executive of a commodities trading firm, from
+London Ops. Use ONLY the FIELDS JSON provided (database values). Never invent flights, times, names,
+phone numbers or addresses. Do not include booking references (they are not provided on purpose).
+
+Rules:
+1. Second person, plain and practical, like a PA's message: e.g. "You land at 18:40, pickup at 19:30,
+   check in at <hotel>, first meeting 09:30 tomorrow."
+2. Keep it under 120 words: a 2–4 sentence paragraph in time order (fly, land, transfer, hotel, first
+   meetings, return), then "**Watch out:**" bullets for any alerts.* fields (skip if alerts.none).
+3. After each fact, cite the field key(s) in square brackets, e.g. [outbound.lands]. Only cite keys in FIELDS.
+4. Use event-local times as given; you may add London time in brackets where the field has it.
+5. If something needed is missing or 'not recorded', say so plainly rather than guessing.
+
+Return JSON: {"summary_markdown": str, "fields_used": [field keys]}"""
+
+
+def template_travel_summary(fields: dict[str, str]) -> tuple[str, list[str]]:
+    """Deterministic briefing from the same fields (used without a key or when Groq fails)."""
+    used: list[str] = []
+
+    def g(key: str) -> str | None:
+        if key in fields and fields[key]:
+            used.append(key)
+            return f"{fields[key]} [{key}]"
+        return None
+
+    parts = []
+    if g("outbound.flight"):
+        parts.append(f"You fly {fields['outbound.flight']} [outbound.flight], departing {g('outbound.departs')} "
+                     f"and landing {g('outbound.lands')}" + (f" (status: {g('outbound.status')})"
+                                                             if "delayed" in fields.get("outbound.status", "") else "")
+                     + ".")
+    if "arrival_transfer.pickup" in fields:
+        parts.append(f"Pickup {g('arrival_transfer.pickup')} with {g('arrival_transfer.provider')}; driver "
+                     f"{g('arrival_transfer.driver')}; about {fields['arrival_transfer.duration'].split(' (')[0]} "
+                     f"[arrival_transfer.duration].")
+        used.append("arrival_transfer.duration")
+    if "hotel.name" in fields:
+        tbc = fields.get("hotel.to_venue", "").startswith("venue TBC")
+        venue = g("hotel.to_venue") if tbc else f"{g('hotel.to_venue')} to the venue"
+        parts.append(f"Check in at {g('hotel.name')} ({g('hotel.address')}) from {g('hotel.check_in')}; {venue}.")
+    if "meetings.m1" in fields:
+        parts.append(f"First meeting: {g('meetings.m1')}." + (f" Then {g('meetings.m2')}." if "meetings.m2" in fields else ""))
+    if "return.flight" in fields:
+        parts.append(f"Home on {fields['return.flight']} [return.flight] departing {g('return.departs')}"
+                     + (f"; leave the hotel by {g('departure_transfer.pickup')}" if "departure_transfer.pickup" in fields else "")
+                     + ".")
+    md = " ".join(parts) or "No travel booked yet."
+    alerts = [k for k in fields if k.startswith("alerts.a")]
+    if alerts:
+        md += "\n\n**Watch out:**\n" + "\n".join(f"- {fields[k]} [{k}]" for k in alerts)
+        used += alerts
+    return md, list(dict.fromkeys(used))
+
+
+def travel_summary(fields: dict[str, str]) -> LLMResult:
+    valid = set(fields)
+    note = None
+    if ai_available():
+        try:
+            out = _groq_json(TRAVEL_SYSTEM, "FIELDS:\n" + json.dumps(fields, indent=1, ensure_ascii=False),
+                             max_tokens=2500)
+            md, cited, bad = _clean_citations(str(out.get("summary_markdown", "")), valid)
+            if not md.strip():
+                raise ValueError("empty summary")
+            used = [k for k in out.get("fields_used", []) if isinstance(k, str) and k in valid]
+            used = list(dict.fromkeys(used + [c for c in cited if c in valid]))
+            unv = [f"AI cited unknown field(s) {', '.join(sorted(set(bad)))} — replaced with [unverified]"] if bad else []
+            return LLMResult({"markdown": md}, f"groq:{model_name()}", None, used, unv)
+        except Exception as exc:  # noqa: BLE001 — any failure falls back
+            note = f"AI unavailable ({type(exc).__name__}); template used"
+    else:
+        note = "No GROQ_API_KEY set; template used"
+    md, used = template_travel_summary(fields)
+    return LLMResult({"markdown": md}, "template", note, used, [])

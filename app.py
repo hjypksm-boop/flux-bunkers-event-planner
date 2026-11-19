@@ -89,6 +89,7 @@ pages = {
         st.Page("pages/1_Live_Diary.py", title="Live Diary", icon="🗓️", default=True),
         st.Page("pages/2_My_Day.py", title="My Day", icon="📱"),
         st.Page("pages/3_Meeting_Brief.py", title="Meeting Brief", icon="📋"),
+        st.Page("pages/8_Travel.py", title="Travel", icon="✈️"),
     ],
     "Follow-through": [
         st.Page("pages/5_Debrief_Follow_up.py", title="Debrief & Follow-up", icon="✍️"),

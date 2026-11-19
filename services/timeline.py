@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 
 from services import clock
-from services.ui import MUTED, STATUS_COLOURS, STATUS_ICONS, TEAL, plotly_layout
+from services.ui import MUTED, STATUS_COLOURS, STATUS_ICONS, TEAL, TRAVEL_COLOURS, TRAVEL_STATUS_COLOURS, plotly_layout
 
 PROGRAMME = "Programme"
 
@@ -18,7 +18,8 @@ def _hex_to_rgba(hex_colour: str, alpha: float) -> str:
 
 
 def build_timeline(meetings: list[dict], sessions: list[dict], attendees: list[dict], ev: dict, day: str,
-                   london: bool = False, now_local: datetime | None = None, show_cancelled: bool = True) -> go.Figure:
+                   london: bool = False, now_local: datetime | None = None, show_cancelled: bool = True,
+                   travel_blocks: list[dict] | None = None) -> go.Figure:
     tz = ev["timezone"]
 
     def conv(dt: datetime) -> datetime:
@@ -61,6 +62,31 @@ def build_timeline(meetings: list[dict], sessions: list[dict], attendees: list[d
             name="Must-attend session", legendgroup="must", showlegend=True,
         ))
 
+    # --- travel: outlined, dotted, translucent blocks drawn *under* meetings (a clash shows as overlap)
+    travel_blocks = [b for b in (travel_blocks or []) if b["person_id"] in lane_of]
+    names = {"flight": "✈ Flight", "hotel": "🏨 Hotel check-in/out", "transfer": "🚗 Transfer"}
+    for kind in ("flight", "transfer", "hotel"):
+        rows = [b for b in travel_blocks if b["kind"] == kind]
+        if not rows:
+            continue
+        base_col = TRAVEL_COLOURS[kind]
+        alert = {"delayed", "not booked", "cancelled"}
+        line_cols = [TRAVEL_STATUS_COLOURS[b["status"]] if b["status"] in alert else base_col for b in rows]
+        fig.add_trace(go.Bar(
+            orientation="h", y=[lane_of[b["person_id"]] for b in rows], base=[conv(b["start"]) for b in rows],
+            x=[max((b["end"] - b["start"]).total_seconds(), 900) * 1000 for b in rows],
+            marker=dict(color=_hex_to_rgba(base_col, 0.10), line=dict(color=line_cols, width=2),
+                        pattern=dict(shape=".", fgcolor=_hex_to_rgba(base_col, 0.6), size=5, solidity=0.25),
+                        cornerradius=8),
+            text=[b["label"] + (f" · {b['status'].upper()}" if b["status"] in alert else "") for b in rows],
+            textposition="inside", insidetextanchor="start", textfont=dict(size=11, color=base_col), textangle=0,
+            customdata=[["travel", f"{conv(b['start']):%H:%M}", f"{conv(b['end']):%H:%M}", b["status"], b["detail"]]
+                        for b in rows],
+            hovertemplate="<b>%{text}</b><br>%{customdata[1]}–%{customdata[2]} · %{customdata[3]}"
+                          "<br>%{customdata[4]}<extra>Travel</extra>",
+            name=names[kind], legendgroup=f"travel_{kind}",
+        ))
+
     # --- meetings, one trace per status for a clickable legend
     for status in ["confirmed", "moved", "proposed", "done", "cancelled"]:
         rows = [(m, lane_of[p]) for m in day_meetings if m["status"] == status for p in m["people"] if p in lane_of]
@@ -86,8 +112,10 @@ def build_timeline(meetings: list[dict], sessions: list[dict], attendees: list[d
         ))
 
     # --- x range
-    starts = [conv(m["start"]) for m in day_meetings] + [conv(s["start"]) for s in day_sessions]
-    ends = [conv(m["end"]) for m in day_meetings] + [conv(s["end"]) for s in day_sessions]
+    starts = ([conv(m["start"]) for m in day_meetings] + [conv(s["start"]) for s in day_sessions]
+              + [conv(b["start"]) for b in travel_blocks])
+    ends = ([conv(m["end"]) for m in day_meetings] + [conv(s["end"]) for s in day_sessions]
+            + [conv(b["end"]) for b in travel_blocks])
     base_day = datetime.fromisoformat(day)
     if london:
         base_day = clock.local_to_tz(base_day.replace(hour=12), tz, clock.LONDON).replace(hour=0, minute=0)
